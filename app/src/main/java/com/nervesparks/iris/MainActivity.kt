@@ -135,9 +135,9 @@ class MainActivity(
         val extFilesDir = getExternalFilesDir(null)
         val models = listOf(
             Downloadable(
-                "EdgeLLM-1_8B-fp16.gguf",
-                Uri.parse("https://huggingface.co/elm-team/EdgeLLM-GGUF/resolve/main/edgellm-1.8B-fp16.gguf?download=true"),
-                File(extFilesDir, "edgellm-1.8B-fp16.gguf")
+                "Plm-1.8B-F16.gguf",
+                Uri.parse("https://huggingface.co/PLM-Team/plm-instruct-dpo-gguf/resolve/main/Plm-1.8B-F16.gguf?download=true"),
+                File(extFilesDir, "Plm-1.8B-F16.gguf")
             )
         )
         if (extFilesDir != null) {

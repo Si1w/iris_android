@@ -98,7 +98,7 @@ fun SearchResultScreen(viewModel: MainViewModel, dm: DownloadManager, extFilesDi
             modifier = Modifier.wrapContentSize()
         ) {
             Text(
-                text = "Example: bartowski/Llama-3.2-1B-Instruct-GGUF",
+                text = "Example: PLM-Team/plm-instruct-dpo-gguf",
                 modifier = Modifier.padding(4.dp),
                 color = Color.White,
                 fontSize = 10.sp
@@ -106,7 +106,7 @@ fun SearchResultScreen(viewModel: MainViewModel, dm: DownloadManager, extFilesDi
 
             IconButton(
                 onClick = {
-                    clipboardManager.setText(AnnotatedString("bartowski/Llama-3.2-1B-Instruct-GGUF"))
+                    clipboardManager.setText(AnnotatedString("PLM-Team/plm-instruct-dpo-gguf"))
                     Toast.makeText(context, "Text copied", Toast.LENGTH_SHORT).show()
                 },
                 modifier = Modifier.size(16.dp)

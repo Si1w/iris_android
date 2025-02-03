@@ -78,9 +78,9 @@ class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instan
 //                "destination" to "stablelm-2-1_6b-chat.Q4_K_M.imx.gguf"
 //            ),
             mapOf(
-                "name" to "edgellm-1.8B-fp16.gguf",
-                "source" to "https://huggingface.co/elm-team/EdgeLLM-GGUF/resolve/main/edgellm-1.8B-fp16.gguf?download=true",
-                "destination" to "edgellm-1.8B-fp16.gguf"
+                "name" to "Plm-1.8B-F16.gguf",
+                "source" to "https://huggingface.co/PLM-Team/plm-instruct-dpo-gguf/resolve/main/edgellm-1.8B-fp16.gguf?download=true",
+                "destination" to "Plm-1.8B-F16.gguf"
             ),
 
         )
