@@ -138,7 +138,17 @@ class MainActivity(
                 "Plm-1.8B-F16.gguf",
                 Uri.parse("https://huggingface.co/PLM-Team/plm-instruct-dpo-gguf/resolve/main/Plm-1.8B-F16.gguf?download=true"),
                 File(extFilesDir, "Plm-1.8B-F16.gguf")
-            )
+            ),
+            Downloadable(
+                "plm-1.8B-instruct-dpo-Q4_K_M.gguf",
+                Uri.parse("https://huggingface.co/PLM-Team/plm-instruct-dpo-gguf/resolve/main/plm-1.8B-instruct-dpo-Q4_K_M.gguf?download=true"),
+                File(extFilesDir, "plm-1.8B-instruct-dpo-Q4_K_M.gguf")
+            ),
+            Downloadable(
+                "plm-1.8B-instruct-dpo-Q8_0.gguf",
+                Uri.parse("https://huggingface.co/PLM-Team/plm-instruct-dpo-gguf/resolve/main/plm-1.8B-instruct-dpo-Q8_0.gguf?download=true"),
+                File(extFilesDir, "plm-1.8B-instruct-dpo-Q8_0.gguf")
+            ),
         )
         if (extFilesDir != null) {
             viewModel.loadExistingModels(extFilesDir)
