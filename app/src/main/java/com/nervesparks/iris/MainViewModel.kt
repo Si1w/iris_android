@@ -3,8 +3,6 @@ package com.nervesparks.iris
 import android.content.Context
 import android.llama.cpp.LLamaAndroid
 import android.net.Uri
-import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.launch
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
@@ -14,14 +12,26 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.nervesparks.iris.data.UserPreferencesRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.launch
+import org.json.JSONObject
+import org.vosk.Model
+import org.vosk.Recognizer
+import org.vosk.android.RecognitionListener
+import org.vosk.android.SpeechService
+import org.vosk.android.SpeechStreamService
 import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
+import java.io.InputStream
 import java.util.Locale
 import java.util.UUID
+
 
 class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instance(), private val userPreferencesRepository: UserPreferencesRepository): ViewModel() {
     companion object {
@@ -50,8 +60,8 @@ class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instan
 
     var messages by mutableStateOf(
 
-            listOf<Map<String, String>>(),
-        )
+        listOf<Map<String, String>>(),
+    )
         private set
     var newShowModal by mutableStateOf(false)
     var showDownloadInfoModal by mutableStateOf(false)
@@ -93,7 +103,7 @@ class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instan
                 "destination" to "plm-1.8B-instruct-dpo-Q8_0.gguf"
             ),
 
-        )
+            )
     )
 
     private var first by mutableStateOf(
@@ -113,9 +123,10 @@ class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instan
         private set
 
     var eot_str = ""
-
-
     var refresh by mutableStateOf(false)
+
+    private var Vosk: Model? = null
+    private var speechService: SpeechService? = null
 
     fun loadExistingModels(directory: File) {
         // List models in the directory that end with .gguf
@@ -176,9 +187,9 @@ class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instan
                     destinationPath
                 )
             }
-        // Attempt to find and load the first model that exists in the combined logic
+            // Attempt to find and load the first model that exists in the combined logic
 
-         }
+        }
     }
 
 
@@ -231,8 +242,6 @@ class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instan
         }
     }
 
-
-
     fun stopTextToSpeech() {
         textToSpeech?.apply {
             stop()  // Stops current speech
@@ -244,7 +253,97 @@ class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instan
         stateForTextToSpeech = true
     }
 
+    fun loadVoskModel(context: Context) {
+        viewModelScope.launch {
+            try {
+                val modelPath = copyAssetFolder(context, "model-en-us")
+                Vosk = Model(modelPath)
+                Log.i("Vosk", "Model loaded from $modelPath")
+            } catch (e: Exception) {
+                Log.e("Vosk", "Unexpected error: ${e.message}")
+            }
+        }
+    }
 
+    fun SpeechToText() {
+        try {
+            val sample_rate = 16000f
+            val recognizer = Recognizer(Vosk, sample_rate)
+            speechService = SpeechService(recognizer, sample_rate).apply {
+                startListening(object : RecognitionListener {
+                    override fun onPartialResult(result: String?) {
+                        Log.i("SST", "Partial Result: $result")
+                        result?.let {
+                            try {
+                                val cleanedResult = it.trim()
+                                val jsonObj = JSONObject(cleanedResult)
+                                val text = jsonObj.optString("text", "")
+                                Log.d("SST", "Extracted Text: $text")
+                                if (text != "") {
+                                    updateMessage(text)
+                                } else {}
+                            } catch (e: Exception) {
+                                Log.e("SST", "JSON Parsing Error: ${e.message}")
+                            }
+                        }
+                    }
+
+                    override fun onResult(result: String?) {
+                        Log.d("SST", "Mid Result：$result")
+                        result?.let {
+                            try {
+                                val cleanedResult = it.trim()
+                                val jsonObj = JSONObject(cleanedResult)
+                                val text = jsonObj.optString("text", "")
+                                Log.d("SST", "Extracted Text: $text")
+                                if (text != "") {
+                                    updateMessage(text)
+                                } else {}
+                            } catch (e: Exception) {
+                                Log.e("SST", "JSON Parsing Error: ${e.message}")
+                            }
+                        }
+                    }
+
+                    override fun onFinalResult(result: String?) {
+                        Log.d("SST", "Final Result JSON: $result")
+                        result?.let {
+                            try {
+                                val cleanedResult = it.trim()
+                                val jsonObj = JSONObject(cleanedResult)
+                                val text = jsonObj.optString("text", "")
+                                Log.d("SST", "Extracted Text: $text")
+                                if (text != "") {
+                                    updateMessage(text)
+                                } else {}
+                            } catch (e: Exception) {
+                                Log.e("SST", "JSON Parsing Error: ${e.message}")
+                            }
+                        }
+                    }
+
+                    override fun onError(e: Exception?) {
+                        Log.e("SST", "Error Result：${e?.message}")
+                    }
+
+                    override fun onTimeout() {
+                        Log.d("SST", "Overtime")
+                    }
+                })
+            }
+        } catch (e: Exception) {
+            Log.e("SST", "Error on Vosk: ${e.message}")
+        }
+    }
+
+    fun stopSpeechToText() {
+        try {
+            speechService?.stop()
+            Log.d("SST", "Speech recognition stopped.")
+        } catch (e: Exception) {
+            Log.e("SST", "Error stopping STT: ${e.message}")
+        }
+    }
 
     var toggler by mutableStateOf(false)
     var showModal by  mutableStateOf(true)
@@ -505,8 +604,32 @@ class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instan
         llamaAndroid.stopTextGeneration()
     }
 
-}
+    private fun copyAssetFolder(context: Context, assetFolder: String): String {
+        val outputDir = File(context.filesDir, assetFolder)
+        if (!outputDir.exists()) outputDir.mkdirs()
 
-fun sentThreadsValue(){
+        try {
+            val assetManager = context.assets
+            val files = assetManager.list(assetFolder) ?: return outputDir.absolutePath
+
+            for (file in files) {
+                val assetPath = "$assetFolder/$file"
+                val outFile = File(outputDir, file)
+                if (assetManager.list(assetPath)?.isNotEmpty() == true) {
+                    copyAssetFolder(context, assetPath)
+                } else {
+                    outFile.parentFile?.takeIf { !it.exists() }?.mkdirs()
+                    assetManager.open(assetPath).use { inputStream ->
+                        FileOutputStream(outFile).use { outputStream ->
+                            inputStream.copyTo(outputStream)
+                        }
+                    }
+                }
+            }
+        } catch (e: IOException) {
+            Log.e("Vosk", "Failed to copy assets: ${e.message}")
+        }
+        return outputDir.absolutePath
+    }
 
 }

@@ -1,21 +1,24 @@
 package com.nervesparks.iris
 
+import android.Manifest;
 import android.app.ActivityManager
 import android.app.DownloadManager
 import android.content.ClipboardManager
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.llama.cpp.LLamaAndroid
 import android.net.Uri
 import android.os.Bundle
 import android.os.StrictMode
 import android.os.StrictMode.VmPolicy
 import android.text.format.Formatter
-
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -58,15 +61,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.core.content.getSystemService
-import java.io.File
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.border
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.nervesparks.iris.data.UserPreferencesRepository
 import com.nervesparks.iris.ui.SettingsBottomSheet
 import com.nervesparks.iris.ui.theme.*
+import java.io.File
 
 
 class MainViewModelFactory(
@@ -94,6 +97,7 @@ class MainActivity(
     private val activityManager by lazy { activityManager ?: getSystemService<ActivityManager>()!! }
     private val downloadManager by lazy { downloadManager ?: getSystemService<DownloadManager>()!! }
     private val clipboardManager by lazy { clipboardManager ?: getSystemService<ClipboardManager>()!! }
+    private val PERMISSIONS_REQUEST_RECORD_AUDIO: Int = 1
 
     private lateinit var viewModel: MainViewModel
 
@@ -102,7 +106,6 @@ class MainActivity(
             activityManager.getMemoryInfo(memoryInfo)
         }
     }
-
     val gradientBrush = Brush.verticalGradient(
         colors = listOf(ChatGPTOnBackground, ChatGPTSurface)
     )
@@ -380,6 +383,19 @@ class MainActivity(
                     extFilesDir,
                 )
             }
+        }
+
+        val permissionCheck = ContextCompat.checkSelfPermission(
+            applicationContext, Manifest.permission.RECORD_AUDIO
+        )
+        if (permissionCheck != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf<String>(Manifest.permission.RECORD_AUDIO),
+                PERMISSIONS_REQUEST_RECORD_AUDIO
+            )
+        } else {
+            viewModel.loadVoskModel(this)
         }
     }
 }

@@ -4,7 +4,6 @@ import android.app.Activity
 import android.app.DownloadManager
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import android.speech.RecognizerIntent
 import android.widget.Toast
@@ -66,7 +65,6 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SheetState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -107,13 +105,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.toSize
-import androidx.compose.ui.window.Dialog
 import com.nervesparks.iris.Downloadable
 import com.nervesparks.iris.LinearGradient
 import com.nervesparks.iris.MainViewModel
 
 import com.nervesparks.iris.R
-import com.nervesparks.iris.ui.components.ChatMessageList
 import com.nervesparks.iris.ui.components.DownloadModal
 import com.nervesparks.iris.ui.components.LoadingModal
 import com.nervesparks.iris.ui.theme.*
@@ -168,6 +164,7 @@ fun MainChatScreen (
 
     val focusRequester = FocusRequester()
     var isFocused by remember { mutableStateOf(false) }
+    var microphone by remember { mutableStateOf(true) }
     var textFieldBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
     if (allModelsExist) {
         viewModel.showModal = false
@@ -543,15 +540,24 @@ fun MainChatScreen (
                     ) {
 
                         IconButton(onClick = {
-                            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                putExtra(
-                                    RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
-                                )
-                                putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak now")
+//                            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+//                                putExtra(
+//                                    RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+//                                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+//                                )
+//                                putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak now")
+//                                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+//                            }
+//                            speechRecognizerLauncher.launch(intent)
+//                            focusManager.clearFocus()
+                            if (microphone) {
+                                viewModel.SpeechToText()
+                            } else {
+                                viewModel.stopSpeechToText()
                             }
-                            speechRecognizerLauncher.launch(intent)
+                            microphone = !microphone
                             focusManager.clearFocus()
+
 
                         }) {
                             Icon(
