@@ -1,7 +1,9 @@
 package com.nervesparks.iris
 
+import android.app.Application
 import android.content.Context
 import android.llama.cpp.LLamaAndroid
+import android.media.MediaPlayer
 import android.net.Uri
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
@@ -11,20 +13,30 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import com.nervesparks.iris.data.UserPreferencesRepository
+import com.nervesparks.iris.media.decodeWaveFile
+import com.nervesparks.iris.recorder.Recorder
+import com.whispercpp.whisper.WhisperContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
-import org.json.JSONObject
-import org.vosk.Model
-import org.vosk.Recognizer
-import org.vosk.android.RecognitionListener
-import org.vosk.android.SpeechService
-import org.vosk.android.SpeechStreamService
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+//import org.json.JSONObject
+//import org.vosk.Model
+//import org.vosk.Recognizer
+//import org.vosk.android.RecognitionListener
+//import org.vosk.android.SpeechService
+//import org.vosk.android.SpeechStreamService
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -33,7 +45,11 @@ import java.util.Locale
 import java.util.UUID
 
 
-class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instance(), private val userPreferencesRepository: UserPreferencesRepository): ViewModel() {
+class MainViewModel(
+    private val llamaAndroid: LLamaAndroid = LLamaAndroid.instance(),
+    private val userPreferencesRepository: UserPreferencesRepository,
+    private val application: Application
+): ViewModel() {
     companion object {
 //        @JvmStatic
 //        private val NanosPerSecond = 1_000_000_000.0
@@ -45,7 +61,12 @@ class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instan
 
     init {
         loadDefaultModelName()
+        viewModelScope.launch {
+            loadData()
+            Log.i("whisper", "Loaded")
+        }
     }
+
     private fun loadDefaultModelName(){
         _defaultModelName.value = userPreferencesRepository.getDefaultModelName()
     }
@@ -72,21 +93,6 @@ class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instan
 
     var allModels by mutableStateOf(
         listOf(
-//            mapOf(
-//                "name" to "Llama-3.2-1B-Instruct-Q6_K_L.gguf",
-//                "source" to "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q6_K_L.gguf?download=true",
-//                "destination" to "Llama-3.2-1B-Instruct-Q6_K_L.gguf"
-//            ),
-//            mapOf(
-//                "name" to "Llama-3.2-3B-Instruct-Q4_K_L.gguf",
-//                "source" to "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_L.gguf?download=true",
-//                "destination" to "Llama-3.2-3B-Instruct-Q4_K_L.gguf"
-//            ),
-//            mapOf(
-//                "name" to "stablelm-2-1_6b-chat.Q4_K_M.imx.gguf",
-//                "source" to "https://huggingface.co/Crataco/stablelm-2-1_6b-chat-imatrix-GGUF/resolve/main/stablelm-2-1_6b-chat.Q4_K_M.imx.gguf?download=true",
-//                "destination" to "stablelm-2-1_6b-chat.Q4_K_M.imx.gguf"
-//            ),
             mapOf(
                 "name" to "Plm-1.8B-F16.gguf",
                 "source" to "https://huggingface.co/PLM-Team/plm-instruct-dpo-gguf/resolve/main/Plm-1.8B-F16.gguf?download=true",
@@ -125,8 +131,22 @@ class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instan
     var eot_str = ""
     var refresh by mutableStateOf(false)
 
-    private var Vosk: Model? = null
-    private var speechService: SpeechService? = null
+//    private var Vosk: Model? = null
+//    private var speechService: SpeechService? = null
+
+    var canTranscribe by mutableStateOf(false)
+        private set
+    var dataLog by mutableStateOf("")
+        private set
+    var isRecording by mutableStateOf(false)
+        private set
+
+    private var lastTranscribedText by mutableStateOf("")
+    private val modelsPath by lazy { File(application.filesDir, "models") }
+    private var recorder: Recorder = Recorder()
+    private var whisperContext: WhisperContext? = null
+    private var recordedFile: File? = null
+    private var mediaPlayer: MediaPlayer? = null
 
     fun loadExistingModels(directory: File) {
         // List models in the directory that end with .gguf
@@ -192,8 +212,6 @@ class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instan
         }
     }
 
-
-
     fun textToSpeech(context: Context) {
         if (!getIsSending()) {
             // If TTS is already initialized, stop it first
@@ -253,97 +271,188 @@ class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instan
         stateForTextToSpeech = true
     }
 
-    fun loadVoskModel(context: Context) {
-        viewModelScope.launch {
-            try {
-                val modelPath = copyAssetFolder(context, "model-en-us")
-                Vosk = Model(modelPath)
-                Log.i("Vosk", "Model loaded from $modelPath")
-            } catch (e: Exception) {
-                Log.e("Vosk", "Unexpected error: ${e.message}")
-            }
+    private suspend fun loadData() {
+        try {
+            copyAssets()
+            loadBaseModel()
+            canTranscribe = true
+            Log.i("whisper", "Loaded")
+        } catch (e: Exception) {
+            Log.w("whisper", e)
         }
     }
 
-    fun SpeechToText() {
+    private suspend fun copyAssets() = withContext(Dispatchers.IO) {
+        try{ modelsPath.mkdirs() } catch (e: Exception) {Log.w("whisper", "Failed to create directory")}
+    }
+
+    private suspend fun loadBaseModel() = withContext(Dispatchers.IO) {
+        val models = application.assets.list("models/")
+        if (models != null) {
+            whisperContext = WhisperContext.createContextFromAsset(
+                application.assets,
+                "models/" + models[0]
+            )
+        }
+        Log.i("whisper", "model Loaded successfully")
+    }
+
+    private suspend fun startPlayback(file: File) = withContext(Dispatchers.Main) {
+        mediaPlayer = MediaPlayer.create(application, file.absolutePath.toUri())
+        mediaPlayer?.start()
+    }
+
+    private suspend fun stopPlayback() = withContext(Dispatchers.Main) {
+        mediaPlayer?.stop()
+        mediaPlayer?.release()
+        mediaPlayer = null
+    }
+
+    private suspend fun readAudioSamples(file: File): FloatArray = withContext(Dispatchers.IO) {
+        stopPlayback()
+        startPlayback(file)
+        return@withContext decodeWaveFile(file)
+    }
+
+    private suspend fun transcribeAudio(file: File) {
+        if (!canTranscribe) {
+            return
+        }
+        canTranscribe = false
         try {
-            val sample_rate = 16000f
-            val recognizer = Recognizer(Vosk, sample_rate)
-            speechService = SpeechService(recognizer, sample_rate).apply {
-                startListening(object : RecognitionListener {
-                    override fun onPartialResult(result: String?) {
-                        Log.i("SST", "Partial Result: $result")
-                        result?.let {
-                            try {
-                                val cleanedResult = it.trim()
-                                val jsonObj = JSONObject(cleanedResult)
-                                val text = jsonObj.optString("text", "")
-                                Log.d("SST", "Extracted Text: $text")
-                                if (text != "") {
-                                    updateMessage(text)
-                                } else {}
-                            } catch (e: Exception) {
-                                Log.e("SST", "JSON Parsing Error: ${e.message}")
-                            }
+            val data = readAudioSamples(file)
+            val text = whisperContext?.transcribeData(data) ?: ""
+            val contentOnly = text.replace(Regex("\\[\\d{2}:\\d{2}:\\d{2}\\.\\d{3} --> \\d{2}:\\d{2}:\\d{2}\\.\\d{3}]:\\s*"), "").trim()
+            Log.i("whisper", "Transcription: $text")
+            updateMessage(contentOnly)
+        } catch (e: Exception) {
+            Log.w("whisper", e)
+        }
+
+        canTranscribe = true
+    }
+
+    fun toggleRecord() = viewModelScope.launch {
+        try {
+            if (isRecording) {
+                recorder.stopRecording()
+                isRecording = false
+                recordedFile?.let { transcribeAudio(it) }
+                Log.i("whisper", "Translating the speech")
+            } else {
+                stopPlayback()
+                val file = getTempFileForRecording()
+                recorder.startRecording(file) { e ->
+                    viewModelScope.launch {
+                        withContext(Dispatchers.Main) {
+                            isRecording = false
                         }
                     }
-
-                    override fun onResult(result: String?) {
-                        Log.d("SST", "Mid Result：$result")
-                        result?.let {
-                            try {
-                                val cleanedResult = it.trim()
-                                val jsonObj = JSONObject(cleanedResult)
-                                val text = jsonObj.optString("text", "")
-                                Log.d("SST", "Extracted Text: $text")
-                                if (text != "") {
-                                    updateMessage(text)
-                                } else {}
-                            } catch (e: Exception) {
-                                Log.e("SST", "JSON Parsing Error: ${e.message}")
-                            }
-                        }
-                    }
-
-                    override fun onFinalResult(result: String?) {
-                        Log.d("SST", "Final Result JSON: $result")
-                        result?.let {
-                            try {
-                                val cleanedResult = it.trim()
-                                val jsonObj = JSONObject(cleanedResult)
-                                val text = jsonObj.optString("text", "")
-                                Log.d("SST", "Extracted Text: $text")
-                                if (text != "") {
-                                    updateMessage(text)
-                                } else {}
-                            } catch (e: Exception) {
-                                Log.e("SST", "JSON Parsing Error: ${e.message}")
-                            }
-                        }
-                    }
-
-                    override fun onError(e: Exception?) {
-                        Log.e("SST", "Error Result：${e?.message}")
-                    }
-
-                    override fun onTimeout() {
-                        Log.d("SST", "Overtime")
-                    }
-                })
+                }
+                isRecording = true
+                recordedFile = file
             }
         } catch (e: Exception) {
-            Log.e("SST", "Error on Vosk: ${e.message}")
+            Log.w("whisper", e)
+            isRecording = false
         }
     }
 
-    fun stopSpeechToText() {
-        try {
-            speechService?.stop()
-            Log.d("SST", "Speech recognition stopped.")
-        } catch (e: Exception) {
-            Log.e("SST", "Error stopping STT: ${e.message}")
-        }
+    private suspend fun getTempFileForRecording() = withContext(Dispatchers.IO) {
+        File.createTempFile("recording", "wav")
     }
+
+//    fun loadVoskModel(context: Context) {
+//        viewModelScope.launch {
+//            try {
+//                val modelPath = copyAssetFolder(context, "model-en-us")
+//                Vosk = Model(modelPath)
+//                Log.i("Vosk", "Model loaded from $modelPath")
+//            } catch (e: Exception) {
+//                Log.e("Vosk", "Unexpected error: ${e.message}")
+//            }
+//        }
+//    }
+//
+//    fun SpeechToText() {
+//        try {
+//            val sample_rate = 16000f
+//            val recognizer = Recognizer(Vosk, sample_rate)
+//            speechService = SpeechService(recognizer, sample_rate).apply {
+//                startListening(object : RecognitionListener {
+//                    override fun onPartialResult(result: String?) {
+//                        Log.i("SST", "Partial Result: $result")
+//                        result?.let {
+//                            try {
+//                                val cleanedResult = it.trim()
+//                                val jsonObj = JSONObject(cleanedResult)
+//                                val text = jsonObj.optString("text", "")
+//                                Log.d("SST", "Extracted Text: $text")
+//                                if (text != "") {
+//                                    updateMessage(text)
+//                                } else {}
+//                            } catch (e: Exception) {
+//                                Log.e("SST", "JSON Parsing Error: ${e.message}")
+//                            }
+//                        }
+//                    }
+//
+//                    override fun onResult(result: String?) {
+//                        Log.d("SST", "Mid Result：$result")
+//                        result?.let {
+//                            try {
+//                                val cleanedResult = it.trim()
+//                                val jsonObj = JSONObject(cleanedResult)
+//                                val text = jsonObj.optString("text", "")
+//                                Log.d("SST", "Extracted Text: $text")
+//                                if (text != "") {
+//                                    updateMessage(text)
+//                                } else {}
+//                            } catch (e: Exception) {
+//                                Log.e("SST", "JSON Parsing Error: ${e.message}")
+//                            }
+//                        }
+//                    }
+//
+//                    override fun onFinalResult(result: String?) {
+//                        Log.d("SST", "Final Result JSON: $result")
+//                        result?.let {
+//                            try {
+//                                val cleanedResult = it.trim()
+//                                val jsonObj = JSONObject(cleanedResult)
+//                                val text = jsonObj.optString("text", "")
+//                                Log.d("SST", "Extracted Text: $text")
+//                                if (text != "") {
+//                                    updateMessage(text)
+//                                } else {}
+//                            } catch (e: Exception) {
+//                                Log.e("SST", "JSON Parsing Error: ${e.message}")
+//                            }
+//                        }
+//                    }
+//
+//                    override fun onError(e: Exception?) {
+//                        Log.e("SST", "Error Result：${e?.message}")
+//                    }
+//
+//                    override fun onTimeout() {
+//                        Log.d("SST", "Overtime")
+//                    }
+//                })
+//            }
+//        } catch (e: Exception) {
+//            Log.e("SST", "Error on Vosk: ${e.message}")
+//        }
+//    }
+//
+//    fun stopSpeechToText() {
+//        try {
+//            speechService?.stop()
+//            Log.d("SST", "Speech recognition stopped.")
+//        } catch (e: Exception) {
+//            Log.e("SST", "Error stopping STT: ${e.message}")
+//        }
+//    }
 
     var toggler by mutableStateOf(false)
     var showModal by  mutableStateOf(true)
@@ -357,9 +466,12 @@ class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instan
 
         viewModelScope.launch {
             try {
-
                 llamaAndroid.unload()
-
+                runBlocking {
+                    whisperContext?.release()
+                    whisperContext = null
+                    stopPlayback()
+                }
             } catch (exc: IllegalStateException) {
                 addMessage("error", exc.message ?: "")
             }
@@ -414,31 +526,6 @@ class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instan
 
     }
 
-//    fun bench(pp: Int, tg: Int, pl: Int, nr: Int = 1) {
-//        viewModelScope.launch {
-//            try {
-//                val start = System.nanoTime()
-//                val warmupResult = llamaAndroid.bench(pp, tg, pl, nr)
-//                val end = System.nanoTime()
-//
-//                messages += warmupResult
-//
-//                val warmup = (end - start).toDouble() / NanosPerSecond
-//                messages += "Warm up time: $warmup seconds, please wait..."
-//
-//                if (warmup > 5.0) {
-//                    messages += "Warm up took too long, aborting benchmark"
-//                    return@launch
-//                }
-//
-//                messages += llamaAndroid.bench(512, 128, 1, 3)
-//            } catch (exc: IllegalStateException) {
-//                Log.e(tag, "bench() failed", exc)
-//                messages += exc.message!!
-//            }
-//        }
-//    }
-
     suspend fun unload(){
         llamaAndroid.unload()
     }
@@ -475,7 +562,7 @@ class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instan
                     }
             } catch (exc: IllegalStateException) {
                 Log.e(tag, "myCustomBenchmark() failed", exc)
-            } catch (exc: kotlinx.coroutines.TimeoutCancellationException) {
+            } catch (exc: TimeoutCancellationException) {
                 Log.e(tag, "myCustomBenchmark() timed out", exc)
             } catch (exc: Exception) {
                 Log.e(tag, "Unexpected error during myCustomBenchmark()", exc)
@@ -495,10 +582,6 @@ class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instan
             }
         }
     }
-
-
-
-
 
     var loadedModelName = mutableStateOf("");
 
@@ -604,32 +687,32 @@ class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instan
         llamaAndroid.stopTextGeneration()
     }
 
-    private fun copyAssetFolder(context: Context, assetFolder: String): String {
-        val outputDir = File(context.filesDir, assetFolder)
-        if (!outputDir.exists()) outputDir.mkdirs()
-
-        try {
-            val assetManager = context.assets
-            val files = assetManager.list(assetFolder) ?: return outputDir.absolutePath
-
-            for (file in files) {
-                val assetPath = "$assetFolder/$file"
-                val outFile = File(outputDir, file)
-                if (assetManager.list(assetPath)?.isNotEmpty() == true) {
-                    copyAssetFolder(context, assetPath)
-                } else {
-                    outFile.parentFile?.takeIf { !it.exists() }?.mkdirs()
-                    assetManager.open(assetPath).use { inputStream ->
-                        FileOutputStream(outFile).use { outputStream ->
-                            inputStream.copyTo(outputStream)
-                        }
-                    }
-                }
-            }
-        } catch (e: IOException) {
-            Log.e("Vosk", "Failed to copy assets: ${e.message}")
-        }
-        return outputDir.absolutePath
-    }
+//    private fun copyAssetFolder(context: Context, assetFolder: String): String {
+//        val outputDir = File(context.filesDir, assetFolder)
+//        if (!outputDir.exists()) outputDir.mkdirs()
+//
+//        try {
+//            val assetManager = context.assets
+//            val files = assetManager.list(assetFolder) ?: return outputDir.absolutePath
+//
+//            for (file in files) {
+//                val assetPath = "$assetFolder/$file"
+//                val outFile = File(outputDir, file)
+//                if (assetManager.list(assetPath)?.isNotEmpty() == true) {
+//                    copyAssetFolder(context, assetPath)
+//                } else {
+//                    outFile.parentFile?.takeIf { !it.exists() }?.mkdirs()
+//                    assetManager.open(assetPath).use { inputStream ->
+//                        FileOutputStream(outFile).use { outputStream ->
+//                            inputStream.copyTo(outputStream)
+//                        }
+//                    }
+//                }
+//            }
+//        } catch (e: IOException) {
+//            Log.e("Vosk", "Failed to copy assets: ${e.message}")
+//        }
+//        return outputDir.absolutePath
+//    }
 
 }

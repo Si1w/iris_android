@@ -93,7 +93,9 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     implementation("androidx.core:core-splashscreen:1.0.1")
     implementation("com.squareup.okhttp3:okhttp:4.10.0")
-    implementation("androidx.datastore:datastore-preferences:1.1.1")
-    implementation("com.alphacephei:vosk-android:0.3.47@aar")
-    implementation("net.java.dev.jna:jna:5.13.0@aar")
+//    implementation("androidx.datastore:datastore-preferences:1.1.1")
+//    implementation("com.alphacephei:vosk-android:0.3.47@aar")
+//    implementation("net.java.dev.jna:jna:5.13.0@aar")
+    implementation("com.google.accompanist:accompanist-permissions:0.31.1-alpha")
+    implementation(project(":lib"))
 }

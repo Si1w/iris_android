@@ -2,6 +2,7 @@ package com.nervesparks.iris
 
 import android.Manifest;
 import android.app.ActivityManager
+import android.app.Application
 import android.app.DownloadManager
 import android.content.ClipboardManager
 import android.content.Intent
@@ -74,13 +75,17 @@ import java.io.File
 
 class MainViewModelFactory(
     private val llamaAndroid: LLamaAndroid,
-    private val userPreferencesRepository: UserPreferencesRepository
+    private val userPreferencesRepository: UserPreferencesRepository,
+    private val application: Application
 ) : ViewModelProvider.Factory {
 
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return MainViewModel(llamaAndroid, userPreferencesRepository) as T
+            return MainViewModel(
+                llamaAndroid, userPreferencesRepository,
+                application,
+            ) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
     }
@@ -106,9 +111,6 @@ class MainActivity(
             activityManager.getMemoryInfo(memoryInfo)
         }
     }
-    val gradientBrush = Brush.verticalGradient(
-        colors = listOf(ChatGPTOnBackground, ChatGPTSurface)
-    )
 
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -123,9 +125,9 @@ class MainActivity(
                 .build()
         )
         val userPrefsRepo = UserPreferencesRepository.getInstance(applicationContext)
-
         val lLamaAndroid = LLamaAndroid.instance()
-        val viewModelFactory = MainViewModelFactory(lLamaAndroid, userPrefsRepo)
+        val application = application
+        val viewModelFactory = MainViewModelFactory(lLamaAndroid, userPrefsRepo, application)
         viewModel = ViewModelProvider(this, viewModelFactory)[MainViewModel::class.java]
 
         val free = Formatter.formatFileSize(this, availableMemory().availMem)
@@ -385,18 +387,18 @@ class MainActivity(
             }
         }
 
-        val permissionCheck = ContextCompat.checkSelfPermission(
-            applicationContext, Manifest.permission.RECORD_AUDIO
-        )
-        if (permissionCheck != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf<String>(Manifest.permission.RECORD_AUDIO),
-                PERMISSIONS_REQUEST_RECORD_AUDIO
-            )
-        } else {
-            viewModel.loadVoskModel(this)
-        }
+//        val permissionCheck = ContextCompat.checkSelfPermission(
+//            applicationContext, Manifest.permission.RECORD_AUDIO
+//        )
+//        if (permissionCheck != PackageManager.PERMISSION_GRANTED) {
+//            ActivityCompat.requestPermissions(
+//                this,
+//                arrayOf<String>(Manifest.permission.RECORD_AUDIO),
+//                PERMISSIONS_REQUEST_RECORD_AUDIO
+//            )
+//        } else {
+//            viewModel.loadVoskModel(this)
+//        }
     }
 }
 

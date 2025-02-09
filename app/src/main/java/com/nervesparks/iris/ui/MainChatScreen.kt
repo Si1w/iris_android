@@ -105,6 +105,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.toSize
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.rememberPermissionState
 import com.nervesparks.iris.Downloadable
 import com.nervesparks.iris.LinearGradient
 import com.nervesparks.iris.MainViewModel
@@ -118,7 +121,9 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class,
+    ExperimentalPermissionsApi::class
+)
 @Composable
 fun MainChatScreen (
     onNextButtonClicked: () -> Unit,
@@ -132,6 +137,11 @@ fun MainChatScreen (
     val windowInsets = WindowInsets.ime
     val focusManager = LocalFocusManager.current
     println("Thread started: ${Thread.currentThread().name}")
+
+    var canTranscribe = viewModel.canTranscribe
+    var isRecording = viewModel.isRecording
+    var messageLog = viewModel.dataLog
+    val micPermissionState = rememberPermissionState(android.Manifest.permission.RECORD_AUDIO)
 
     val Prompts = listOf(
         "Explain how to develop a consistent reading habit.",
@@ -540,23 +550,19 @@ fun MainChatScreen (
                     ) {
 
                         IconButton(onClick = {
-//                            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-//                                putExtra(
-//                                    RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-//                                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
-//                                )
-//                                putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak now")
-//                                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+//                            if (microphone) {
+//                                viewModel.SpeechToText()
+//                            } else {
+//                                viewModel.stopSpeechToText()
 //                            }
-//                            speechRecognizerLauncher.launch(intent)
+//                            microphone = !microphone
 //                            focusManager.clearFocus()
-                            if (microphone) {
-                                viewModel.SpeechToText()
+
+                            if (micPermissionState.status.isGranted) {
+                                viewModel.toggleRecord()
                             } else {
-                                viewModel.stopSpeechToText()
+                                micPermissionState.launchPermissionRequest()
                             }
-                            microphone = !microphone
-                            focusManager.clearFocus()
 
 
                         }) {
@@ -831,6 +837,25 @@ fun ScrollToBottomButton(
                 )
             }
         }
+    }
+}
+
+@OptIn(ExperimentalPermissionsApi::class)
+@Composable
+private fun RecordButton(enabled: Boolean, isRecording: Boolean, onClick: () -> Unit) {
+    val micPermissionState = rememberPermissionState(android.Manifest.permission.RECORD_AUDIO)
+
+    Button(
+        onClick = {
+            if (micPermissionState.status.isGranted) {
+                onClick()
+            } else {
+                micPermissionState.launchPermissionRequest()
+            }
+        },
+        enabled = enabled
+    ) {
+        Text(if (isRecording) "Stop recording" else "Start recording")
     }
 }
 
