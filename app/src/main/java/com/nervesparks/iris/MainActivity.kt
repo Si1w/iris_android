@@ -395,7 +395,7 @@ class MainActivity(
                 PERMISSIONS_REQUEST_RECORD_AUDIO
             )
         } else {
-            viewModel.loadVoskModel(this)
+            viewModel.loadVoskModel(this, "model-en-us")
         }
     }
 }

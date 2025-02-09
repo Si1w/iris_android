@@ -253,10 +253,10 @@ class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instan
         stateForTextToSpeech = true
     }
 
-    fun loadVoskModel(context: Context) {
+    fun loadVoskModel(context: Context, modelname: String) {
         viewModelScope.launch {
             try {
-                val modelPath = copyAssetFolder(context, "model-en-us")
+                val modelPath = copyAssetFolder(context, modelname)
                 Vosk = Model(modelPath)
                 Log.i("Vosk", "Model loaded from $modelPath")
             } catch (e: Exception) {

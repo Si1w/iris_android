@@ -76,6 +76,32 @@ fun ParametersScreen(viewModel: MainViewModel) {
             ) {
                 item {
                     SettingSection(
+                        title = "STT Model",
+                        description = "Choose STT Model language"
+                    ) {
+                        Button(
+                            onClick = { viewModel.loadVoskModel(context, "model-en-us")},
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF2563EB).copy(alpha = 1.0f),
+                                contentColor = Color.White )
+                        ) {
+                            Text("English")
+                        }
+                    Button(
+                        onClick = { viewModel.loadVoskModel(context, "model-cn")},
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF2563EB).copy(alpha = 1.0f),
+                            contentColor = Color.White )
+                        ) {
+                        Text("Chinese")
+                        }
+                    }
+                }
+
+                item { SectionDivider() }
+
+                item {
+                    SettingSection(
                         title = "Thread Selection",
                         description = "Select thread for process, 0 for default"
                     ) {
