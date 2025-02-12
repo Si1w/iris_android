@@ -211,7 +211,7 @@ private fun buildDeviceInfo(viewModel: MainViewModel): String {
         append("Android: ${Build.VERSION.RELEASE}\n")
         append("Processor: ${Build.HARDWARE}\n")
         append("Available Threads: ${Runtime.getRuntime().availableProcessors()}\n")
-        append("Current Model: ${viewModel.loadedModelName.value ?: "N/A"}\n")
+        append("Current Model: ${viewModel.loadedModelName.value}\n")
         append("User Threads: ${viewModel.user_thread}")
     }
 }

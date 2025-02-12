@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.plugin.mpp.pm20.util.libsDirectory
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -21,8 +23,8 @@ android {
             useSupportLibrary = true
         }
         ndk {
-            // Add NDK properties if wanted, e.g.
-            // abiFilters += listOf("arm64-v8a")
+//             Add NDK properties if wanted, e.g.
+             abiFilters += listOf("arm64-v8a")
         }
     }
 
@@ -42,6 +44,12 @@ android {
     }
     kotlinOptions {
         jvmTarget = "1.8"
+        libsDirectory = project.file("jniLibs")
+    }
+    sourceSets {
+        getByName("main") {
+            jniLibs.srcDirs("src/main/jniLibs")
+        }
     }
     buildFeatures {
         compose = true
@@ -84,6 +92,7 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.8.5")
     implementation("androidx.compose.foundation:foundation-layout-android:1.7.6")
     implementation("androidx.games:games-activity:3.0.5")
+    implementation("androidx.media3:media3-common-ktx:1.5.1")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
@@ -93,7 +102,8 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     implementation("androidx.core:core-splashscreen:1.0.1")
     implementation("com.squareup.okhttp3:okhttp:4.10.0")
-    implementation("androidx.datastore:datastore-preferences:1.1.1")
-    implementation("com.alphacephei:vosk-android:0.3.47@aar")
-    implementation("net.java.dev.jna:jna:5.13.0@aar")
+//    implementation("androidx.datastore:datastore-preferences:1.1.1")
+//    implementation("com.alphacephei:vosk-android:0.3.47@aar")
+//    implementation("net.java.dev.jna:jna:5.13.0@aar")
+//    implementation(project(":sherpa"))
 }

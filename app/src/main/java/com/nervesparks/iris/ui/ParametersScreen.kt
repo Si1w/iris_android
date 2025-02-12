@@ -42,8 +42,6 @@ fun ParametersScreen(viewModel: MainViewModel) {
             .fillMaxSize()
             .padding(16.dp)
     ) {
-
-
             Text(
                 text = "After changing please Save the changes",
                 color = Color.White,
@@ -76,25 +74,24 @@ fun ParametersScreen(viewModel: MainViewModel) {
             ) {
                 item {
                     SettingSection(
-                        title = "STT Model",
-                        description = "Choose STT Model language"
+                        title = "Speaker Speed",
+                        description = "Select speaker speed for TTS, 1 for default"
                     ) {
-                        Button(
-                            onClick = { viewModel.loadVoskModel(context, "model-en-us")},
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF2563EB).copy(alpha = 1.0f),
-                                contentColor = Color.White )
-                        ) {
-                            Text("English")
-                        }
-                    Button(
-                        onClick = { viewModel.loadVoskModel(context, "model-cn")},
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF2563EB).copy(alpha = 1.0f),
-                            contentColor = Color.White )
-                        ) {
-                        Text("Chinese")
-                        }
+                        Text(
+                            text = "${viewModel.speed.toInt()}",
+                            color = Color.White
+                        )
+                        Slider(
+                            value = viewModel.speed,
+                            onValueChange = { viewModel.speed = it },
+                            valueRange = 0f..3f,
+                            steps = 2,
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color(0xFF2563EB),
+                                activeTrackColor = Color(0xFF2563EB),
+                                inactiveTrackColor = Color.Gray
+                            )
+                        )
                     }
                 }
 

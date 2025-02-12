@@ -6,6 +6,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.net.Uri
 import android.speech.RecognizerIntent
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -107,6 +108,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.toSize
 import com.nervesparks.iris.Downloadable
 import com.nervesparks.iris.LinearGradient
+import com.nervesparks.iris.MainActivity
 import com.nervesparks.iris.MainViewModel
 
 import com.nervesparks.iris.R
@@ -116,6 +118,7 @@ import com.nervesparks.iris.ui.theme.*
 
 import kotlinx.coroutines.launch
 import java.io.File
+import kotlin.concurrent.thread
 
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -123,6 +126,7 @@ import java.io.File
 fun MainChatScreen (
     onNextButtonClicked: () -> Unit,
     viewModel: MainViewModel,
+    activity: MainActivity,
     clipboard: ClipboardManager,
     dm: DownloadManager,
     models: List<Downloadable>,
@@ -131,6 +135,7 @@ fun MainChatScreen (
     val kc = LocalSoftwareKeyboardController.current
     val windowInsets = WindowInsets.ime
     val focusManager = LocalFocusManager.current
+    val context = LocalContext.current
     println("Thread started: ${Thread.currentThread().name}")
 
     val Prompts = listOf(
@@ -540,24 +545,32 @@ fun MainChatScreen (
                     ) {
 
                         IconButton(onClick = {
-//                            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-//                                putExtra(
-//                                    RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-//                                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
-//                                )
-//                                putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak now")
-//                                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-//                            }
-//                            speechRecognizerLauncher.launch(intent)
-//                            focusManager.clearFocus()
-                            if (microphone) {
-                                viewModel.SpeechToText()
-                            } else {
-                                viewModel.stopSpeechToText()
-                            }
-                            microphone = !microphone
-                            focusManager.clearFocus()
+                            if (!viewModel.isRecording) {
+                                val ret = viewModel.initMicrophone(context)
+                                if (!ret) {
+                                    Log.e("Sherpa", "Failed to initialize microphone")
+                                    viewModel.isRecording = false
+                                    viewModel.audioRecord!!.stop()
+                                    viewModel.audioRecord!!.release()
+                                    viewModel.audioRecord = null
+                                }
+                                Log.i("Sherpa", "state: ${viewModel.audioRecord?.state}")
+                                viewModel.audioRecord!!.startRecording()
+                                viewModel.isRecording = true
+                                viewModel.idx = 0
+                                viewModel.lastText = ""
 
+                                viewModel.recordingThread = thread(true) {
+                                    viewModel.processSamples()
+                                }
+                                Log.i("Sherpa", "Started recording")
+                            } else {
+                                viewModel.isRecording = false
+                                viewModel.audioRecord!!.stop()
+                                viewModel.audioRecord!!.release()
+                                viewModel.audioRecord = null
+                                Log.i("Sherpa", "Stopped recording")
+                            }
 
                         }) {
                             Icon(
@@ -984,7 +997,7 @@ fun MessageBottomSheet(
                         .fillMaxWidth()
                         .padding(vertical = 8.dp),
                     onClick = {
-                        clipboard.setText(AnnotatedString(message))
+                        clipboard.text = AnnotatedString(message)
                         Toast.makeText(context, "Text copied!", Toast.LENGTH_SHORT).show()
                         onDismiss()
                     }
@@ -1014,13 +1027,15 @@ fun MessageBottomSheet(
                         .padding(vertical = 8.dp),
                     enabled = !viewModel.getIsSending(),
                     onClick = {
-                        if (viewModel.stateForTextToSpeech) {
+                        try {
                             viewModel.textForTextToSpeech = message
-                            viewModel.textToSpeech(context)
-                        } else {
-                            viewModel.stopTextToSpeech()
+                            viewModel.onClickGenerate(context)
+//                            viewModel.onClickPlay(context)
+                        } catch (e: Exception) {
+                            Log.e("Sherpa", "Action Failed: ${e.message}")
                         }
-                        onDismiss()
+//                        viewModel.onClickStop()
+//                        Log.i("Sherpa", "Action Completed")
                     }
                 ) {
                     Text(

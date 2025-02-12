@@ -1,34 +1,42 @@
 package com.nervesparks.iris
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
+import android.content.pm.PackageManager
 import android.llama.cpp.LLamaAndroid
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.AudioTrack
+import android.media.MediaPlayer
+import android.media.MediaRecorder
+import android.media.AudioAttributes
+import android.media.AudioManager
 import android.net.Uri
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.util.Log
+import android.widget.EditText
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.app.ActivityCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.k2fsa.sherpa.onnx.OfflineTts
+import com.k2fsa.sherpa.onnx.OnlineRecognizer
+import com.k2fsa.sherpa.onnx.getOfflineTtsConfig
 import com.nervesparks.iris.data.UserPreferencesRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
-import org.json.JSONObject
-import org.vosk.Model
-import org.vosk.Recognizer
-import org.vosk.android.RecognitionListener
-import org.vosk.android.SpeechService
-import org.vosk.android.SpeechStreamService
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
-import java.io.InputStream
 import java.util.Locale
 import java.util.UUID
 
@@ -72,21 +80,6 @@ class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instan
 
     var allModels by mutableStateOf(
         listOf(
-//            mapOf(
-//                "name" to "Llama-3.2-1B-Instruct-Q6_K_L.gguf",
-//                "source" to "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q6_K_L.gguf?download=true",
-//                "destination" to "Llama-3.2-1B-Instruct-Q6_K_L.gguf"
-//            ),
-//            mapOf(
-//                "name" to "Llama-3.2-3B-Instruct-Q4_K_L.gguf",
-//                "source" to "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_L.gguf?download=true",
-//                "destination" to "Llama-3.2-3B-Instruct-Q4_K_L.gguf"
-//            ),
-//            mapOf(
-//                "name" to "stablelm-2-1_6b-chat.Q4_K_M.imx.gguf",
-//                "source" to "https://huggingface.co/Crataco/stablelm-2-1_6b-chat-imatrix-GGUF/resolve/main/stablelm-2-1_6b-chat.Q4_K_M.imx.gguf?download=true",
-//                "destination" to "stablelm-2-1_6b-chat.Q4_K_M.imx.gguf"
-//            ),
             mapOf(
                 "name" to "Plm-1.8B-F16.gguf",
                 "source" to "https://huggingface.co/PLM-Team/plm-instruct-dpo-gguf/resolve/main/Plm-1.8B-F16.gguf?download=true",
@@ -102,8 +95,7 @@ class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instan
                 "source" to "https://huggingface.co/PLM-Team/plm-instruct-dpo-gguf/resolve/main/plm-1.8B-instruct-dpo-Q8_0.gguf?download=true",
                 "destination" to "plm-1.8B-instruct-dpo-Q8_0.gguf"
             ),
-
-            )
+        )
     )
 
     private var first by mutableStateOf(
@@ -125,8 +117,36 @@ class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instan
     var eot_str = ""
     var refresh by mutableStateOf(false)
 
-    private var Vosk: Model? = null
-    private var speechService: SpeechService? = null
+    // Sherpa-onnx SST
+    lateinit var recognizer: OnlineRecognizer
+    var audioRecord: AudioRecord? = null
+    var recordingThread: Thread? = null
+
+    val audioSource = MediaRecorder.AudioSource.MIC
+    val sampleRateInHz = 16000
+    val channelConfig = AudioFormat.CHANNEL_IN_MONO
+
+    // Note: We don't use AudioFormat.ENCODING_PCM_FLOAT
+    // since the AudioRecord.read(float[]) needs API level >= 23
+    // but we are targeting API level >= 21
+    val audioFormat = AudioFormat.ENCODING_PCM_16BIT
+    var idx: Int = 0
+    var lastText: String = ""
+
+    @Volatile
+    var isRecording: Boolean = false
+
+    // Sherpa-onnx TTS
+
+    lateinit var tts: OfflineTts
+    var sid by mutableStateOf(0)
+    var speed by mutableStateOf(1.0f)
+    var stopped: Boolean = false
+    var mediaPlayer: MediaPlayer? = null
+    lateinit var track: AudioTrack
+    var generate by mutableStateOf(false)
+    var play by mutableStateOf(false)
+    var stop by mutableStateOf(false)
 
     fun loadExistingModels(directory: File) {
         // List models in the directory that end with .gguf
@@ -192,163 +212,150 @@ class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instan
         }
     }
 
+    // Sherpa-onnx SST
 
+    fun initMicrophone(context: Context): Boolean {
+        val numBytes = AudioRecord.getMinBufferSize(sampleRateInHz, channelConfig, audioFormat)
+        Log.i(
+            "Sherpa", "buffer size in milliseconds: ${numBytes * 1000.0f / sampleRateInHz}"
+        )
 
-    fun textToSpeech(context: Context) {
-        if (!getIsSending()) {
-            // If TTS is already initialized, stop it first
-            textToSpeech?.stop()
+        if (ActivityCompat.checkSelfPermission(
+                context,
+                Manifest.permission.RECORD_AUDIO
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return false
+        }
+        audioRecord = AudioRecord(
+            audioSource,
+            sampleRateInHz,
+            channelConfig,
+            audioFormat,
+            numBytes * 2 // a sample has two bytes as we are using 16-bit PCM
+        )
+        return true
+    }
 
-            textToSpeech = TextToSpeech(context) { status ->
-                if (status == TextToSpeech.SUCCESS) {
-                    textToSpeech?.let { txtToSpeech ->
-                        txtToSpeech.language = Locale.US
-                        txtToSpeech.setSpeechRate(1.0f)
+    fun processSamples() {
+        Log.i("Sherpa", "processing samples")
+        val stream = recognizer.createStream()
 
-                        // Add a unique utterance ID for tracking
-                        val utteranceId = UUID.randomUUID().toString()
+        val interval = 0.1 // i.e., 100 ms
+        val bufferSize = (interval * sampleRateInHz).toInt() // in samples
+        val buffer = ShortArray(bufferSize)
 
-                        txtToSpeech.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                            override fun onDone(utteranceId: String?) {
-                                // Reset state when speech is complete
-                                CoroutineScope(Dispatchers.Main).launch {
-                                    stateForTextToSpeech = true
-                                }
-                            }
+        while (isRecording) {
+            val ret = audioRecord?.read(buffer, 0, buffer.size)
+            if (ret != null && ret > 0) {
+                val samples = FloatArray(ret) { buffer[it] / 32768.0f }
+                stream.acceptWaveform(samples, sampleRate = sampleRateInHz)
+                while (recognizer.isReady(stream)) {
+                    recognizer.decode(stream)
+                }
 
-                            override fun onError(utteranceId: String?) {
-                                CoroutineScope(Dispatchers.Main).launch {
-                                    stateForTextToSpeech = true
-                                }
-                            }
+                val isEndpoint = recognizer.isEndpoint(stream)
+                var text = recognizer.getResult(stream).text
 
-                            override fun onStart(utteranceId: String?) {
-                                // Update state to indicate speech is playing
-                                CoroutineScope(Dispatchers.Main).launch {
-                                    stateForTextToSpeech = false
-                                }
-                            }
-                        })
+                // For streaming parformer, we need to manually add some
+                // paddings so that it has enough right context to
+                // recognize the last word of this segment
+                if (isEndpoint && recognizer.config.modelConfig.paraformer.encoder.isNotBlank()) {
+                    val tailPaddings = FloatArray((0.8 * sampleRateInHz).toInt())
+                    stream.acceptWaveform(tailPaddings, sampleRate = sampleRateInHz)
+                    while (recognizer.isReady(stream)) {
+                        recognizer.decode(stream)
+                    }
+                    text = recognizer.getResult(stream).text
+                }
 
-                        txtToSpeech.speak(
-                            textForTextToSpeech,
-                            TextToSpeech.QUEUE_FLUSH,
-                            null,
-                            utteranceId
-                        )
+                var textToDisplay = lastText
+
+                if (text.isNotBlank()) {
+                    textToDisplay = if (lastText.isBlank()) {
+                        text
+                    } else {
+                        "${lastText}\n: $text"
                     }
                 }
+
+                if (isEndpoint) {
+                    recognizer.reset(stream)
+                    if (text.isNotBlank()) {
+                        lastText = text
+                        textToDisplay = lastText
+                        idx += 1
+                    }
+                }
+                updateMessage(textToDisplay)
             }
         }
+        stream.release()
     }
 
-    fun stopTextToSpeech() {
-        textToSpeech?.apply {
-            stop()  // Stops current speech
-            shutdown()  // Releases the resources
+    // Sherpa-onnx TTS
+
+    private fun callback(samples: FloatArray): Int {
+        if (!stopped) {
+            track.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
+            return 1
+        } else {
+            track.stop()
+            return 0
         }
-        textToSpeech = null
-
-        // Reset state to allow restarting
-        stateForTextToSpeech = true
     }
 
-    fun loadVoskModel(context: Context, modelname: String) {
-        viewModelScope.launch {
-            try {
-                val modelPath = copyAssetFolder(context, modelname)
-                Vosk = Model(modelPath)
-                Log.i("Vosk", "Model loaded from $modelPath")
-            } catch (e: Exception) {
-                Log.e("Vosk", "Unexpected error: ${e.message}")
+    fun onClickGenerate(context: Context) {
+        track.pause()
+        track.flush()
+        track.play()
+
+        val dir = context.filesDir
+        dir.listFiles()?.forEach {
+            if (it.name.endsWith(".wav")) {
+                it.delete()
             }
         }
-    }
 
-    fun SpeechToText() {
-        try {
-            val sample_rate = 16000f
-            val recognizer = Recognizer(Vosk, sample_rate)
-            speechService = SpeechService(recognizer, sample_rate).apply {
-                startListening(object : RecognitionListener {
-                    override fun onPartialResult(result: String?) {
-                        Log.i("SST", "Partial Result: $result")
-                        result?.let {
-                            try {
-                                val cleanedResult = it.trim()
-                                val jsonObj = JSONObject(cleanedResult)
-                                val text = jsonObj.optString("text", "")
-                                Log.d("SST", "Extracted Text: $text")
-                                if (text != "") {
-                                    updateMessage(text)
-                                } else {}
-                            } catch (e: Exception) {
-                                Log.e("SST", "JSON Parsing Error: ${e.message}")
-                            }
-                        }
-                    }
+        stopped = false
+        Thread {
+            val audio = tts.generateWithCallback(
+                text = textForTextToSpeech,
+                sid = sid,
+                speed = speed,
+                callback = this::callback
+            )
 
-                    override fun onResult(result: String?) {
-                        Log.d("SST", "Mid Result：$result")
-                        result?.let {
-                            try {
-                                val cleanedResult = it.trim()
-                                val jsonObj = JSONObject(cleanedResult)
-                                val text = jsonObj.optString("text", "")
-                                Log.d("SST", "Extracted Text: $text")
-                                if (text != "") {
-                                    updateMessage(text)
-                                } else {}
-                            } catch (e: Exception) {
-                                Log.e("SST", "JSON Parsing Error: ${e.message}")
-                            }
-                        }
-                    }
-
-                    override fun onFinalResult(result: String?) {
-                        Log.d("SST", "Final Result JSON: $result")
-                        result?.let {
-                            try {
-                                val cleanedResult = it.trim()
-                                val jsonObj = JSONObject(cleanedResult)
-                                val text = jsonObj.optString("text", "")
-                                Log.d("SST", "Extracted Text: $text")
-                                if (text != "") {
-                                    updateMessage(text)
-                                } else {}
-                            } catch (e: Exception) {
-                                Log.e("SST", "JSON Parsing Error: ${e.message}")
-                            }
-                        }
-                    }
-
-                    override fun onError(e: Exception?) {
-                        Log.e("SST", "Error Result：${e?.message}")
-                    }
-
-                    override fun onTimeout() {
-                        Log.d("SST", "Overtime")
-                    }
-                })
+            val filename = context.filesDir.absolutePath + "/generated.wav"
+            val ok = audio.samples.size > 0 && audio.save(filename)
+            if (ok) {
+                track.stop()
             }
-        } catch (e: Exception) {
-            Log.e("SST", "Error on Vosk: ${e.message}")
-        }
+        }.start()
     }
 
-    fun stopSpeechToText() {
-        try {
-            speechService?.stop()
-            Log.d("SST", "Speech recognition stopped.")
-        } catch (e: Exception) {
-            Log.e("SST", "Error stopping STT: ${e.message}")
-        }
-    }
+//    fun onClickPlay(context: Context) {
+//        val filename = context.filesDir.absolutePath + "/generated.wav"
+//        mediaPlayer?.stop()
+//        mediaPlayer = MediaPlayer.create(
+//            context,
+//            Uri.fromFile(File(filename))
+//        )
+//        mediaPlayer?.start()
+//        mediaPlayer = null
+//    }
+//
+//    fun onClickStop() {
+//        track.pause()
+//        track.flush()
+//        mediaPlayer?.stop()
+//        mediaPlayer = null
+//    }
+
 
     var toggler by mutableStateOf(false)
     var showModal by  mutableStateOf(true)
     var showAlert by mutableStateOf(false)
-    var switchModal by mutableStateOf(false)
     var currentDownloadable: Downloadable? by mutableStateOf(null)
 
     override fun onCleared() {
@@ -409,35 +416,7 @@ class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instan
 
             }
         }
-
-
-
     }
-
-//    fun bench(pp: Int, tg: Int, pl: Int, nr: Int = 1) {
-//        viewModelScope.launch {
-//            try {
-//                val start = System.nanoTime()
-//                val warmupResult = llamaAndroid.bench(pp, tg, pl, nr)
-//                val end = System.nanoTime()
-//
-//                messages += warmupResult
-//
-//                val warmup = (end - start).toDouble() / NanosPerSecond
-//                messages += "Warm up time: $warmup seconds, please wait..."
-//
-//                if (warmup > 5.0) {
-//                    messages += "Warm up took too long, aborting benchmark"
-//                    return@launch
-//                }
-//
-//                messages += llamaAndroid.bench(512, 128, 1, 3)
-//            } catch (exc: IllegalStateException) {
-//                Log.e(tag, "bench() failed", exc)
-//                messages += exc.message!!
-//            }
-//        }
-//    }
 
     suspend fun unload(){
         llamaAndroid.unload()
@@ -500,7 +479,7 @@ class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instan
 
 
 
-    var loadedModelName = mutableStateOf("");
+    var loadedModelName = mutableStateOf("")
 
     fun load(pathToModel: String, userThreads: Int)  {
         viewModelScope.launch {
@@ -602,34 +581,6 @@ class MainViewModel(private val llamaAndroid: LLamaAndroid = LLamaAndroid.instan
 
     fun stop() {
         llamaAndroid.stopTextGeneration()
-    }
-
-    private fun copyAssetFolder(context: Context, assetFolder: String): String {
-        val outputDir = File(context.filesDir, assetFolder)
-        if (!outputDir.exists()) outputDir.mkdirs()
-
-        try {
-            val assetManager = context.assets
-            val files = assetManager.list(assetFolder) ?: return outputDir.absolutePath
-
-            for (file in files) {
-                val assetPath = "$assetFolder/$file"
-                val outFile = File(outputDir, file)
-                if (assetManager.list(assetPath)?.isNotEmpty() == true) {
-                    copyAssetFolder(context, assetPath)
-                } else {
-                    outFile.parentFile?.takeIf { !it.exists() }?.mkdirs()
-                    assetManager.open(assetPath).use { inputStream ->
-                        FileOutputStream(outFile).use { outputStream ->
-                            inputStream.copyTo(outputStream)
-                        }
-                    }
-                }
-            }
-        } catch (e: IOException) {
-            Log.e("Vosk", "Failed to copy assets: ${e.message}")
-        }
-        return outputDir.absolutePath
     }
 
 }
