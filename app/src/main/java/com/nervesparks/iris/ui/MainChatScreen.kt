@@ -414,7 +414,7 @@ fun MainChatScreen (
                                             modifier = Modifier
                                                 .padding(horizontal = 10.dp, vertical = 4.dp)
                                                 .background(
-                                                    Color.Black,
+                                                    ChatGPTOnSecondary,
                                                     shape = RoundedCornerShape(8.dp)
                                                 )
                                                 .fillMaxWidth()

@@ -16,4 +16,3 @@ dependencyResolutionManagement {
 rootProject.name = "EdgePLM"
 include(":app")
 include(":llama")
-//include(":sherpa")

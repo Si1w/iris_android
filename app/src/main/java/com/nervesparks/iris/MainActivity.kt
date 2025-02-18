@@ -405,18 +405,6 @@ class MainActivity(
             }
         }
 
-//        val permissionCheck = ContextCompat.checkSelfPermission(
-//            applicationContext, Manifest.permission.RECORD_AUDIO
-//        )
-//        if (permissionCheck != PackageManager.PERMISSION_GRANTED) {
-//            ActivityCompat.requestPermissions(
-//                this,
-//                arrayOf<String>(Manifest.permission.RECORD_AUDIO),
-//                PERMISSIONS_REQUEST_RECORD_AUDIO
-//            )
-//        } else {
-//            viewModel.loadVoskModel(this, "model-en-us")
-//        }
 
         // Initialize Sherpa-Onnx STT
         ActivityCompat.requestPermissions(this, permissions, REQUEST_RECORD_AUDIO_PERMISSION)
